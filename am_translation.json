@@ -1,0 +1,485 @@
+{
+  "tin_number": "የታክስ መለያ ቁጥር",
+  "package": "እቃ ጥቅል",
+  "piece": "አንድ እቃ",
+  "unit_price": "የአንዱ እቃ ዋጋ",
+  "vat_number": "የቫት መለያ ቁጥር",
+  "fs_number": "የመጠየቂያ ቅፅ ቁጥር",
+  "zone": "ዞን",
+  "city": "ከተማ",
+  "sub_city": "ክፍለ ከተማ",
+  "receipt_no": "የደረሰኝ ቁጥር",
+  "unit": "አንድነት / እቃ አሃድ",
+  "en_name": "የእንግሊዝኛ ስም",
+  "am_name": "የአማርኛ ስም",
+  "region": "ክልል",
+  "receipt": "ደረሰኝ",
+  "vat": "ቫት",
+  "sub_total": "ድምር ከቫት በፊት",
+  "total_amount": "ጠቅላላ መጠን",
+  "status": "ሁኔታ",
+  "customer_name": "የደንበኛ ስም",
+  "customer_phone": "የደንበኛ ስልክ ቁጥር",
+  "customer_tin_number": "የደንበኛ የታክስ መለያ ቁጥር",
+  "order_date": "የትዕዛዝ ቀን",
+  "product_name": "የምርት ስም",
+  "product_price": "የምርት ዋጋ",
+  "issued_date": "የተሰጠበት ቀን",
+  "performa": "ፎርፎማ ደረሰኝ",
+  "purchase_date": "የግዢ ቀን",
+  "payment_status": "የመክፈያ ሁኔታ",
+  "paid_amount": "የተከፈለ መጠን",
+  "unpaid_amount": "ያልተከፈለ መጠን",
+  "with_receipt": "ከደረሰኝ ጋር",
+  "without_receipt": "ያለለደረሰኝ",
+  "total_amount_sold": "ጠቅላላ የተሸጠውው መጠን",
+  "filter_by_receipt": "በደረሰኝ አጣራ",
+  "filter_by_product": "በምርት አጣራ"
+}
+
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)  # Read-only
+    # product_name = serializers.CharField(source='product.name', read_only=True)
+    # product_price = serializers.CharField(source='product.selling_price', read_only=True)
+    product_price = serializers.SerializerMethodField()
+    unit = serializers.CharField(source='product.unit', read_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'order', 'product', 'product_price', 'item_receipt', 'package', 'unit', 'quantity', 'unit_price', 'price', 'status']
+        extra_kwargs = {
+            'order': {'required': False},  # Make 'order' optional in the request
+            'price': {'read_only': True}, # Make 'price' read-only if calculated
+        }
+    
+    def get_product_price(self, obj):
+        # Return unit_price if provided, else product.selling_price
+        if obj.unit_price > 0:
+            return str(obj.unit_price)
+        elif obj.unit_price == 0 or obj.unit_price is None:
+            return str(obj.product.selling_price)
+
+    def update(self, instance, validated_data):
+        # Update order fields directly
+        new_quantity = validated_data.get('quantity')
+        new_status = validated_data.get('status')
+        new_package = validated_data.get('package')
+        new_unit_price = validated_data.get('unit_price')
+        product = instance.product  # Access the product from the existing order item
+        quantity = instance.quantity
+        receipt = instance.order.receipt  # Access the receipt from the order
+        package = instance.package
+        unit_price = instance.unit_price
+
+        user_role = instance.order.user_role  # Access the user from the order
+        user_name = instance.order.user  # Access the user from the order
+
+
+        if new_status == 'Cancelled' or new_status == 'Done':
+            if user_role == 'Salesman':
+                # Log the request for manager/admin review
+                # You could create a model like OrderActionRequest or send a notification/email here
+                create_order_log(
+                    user=user_name,
+                    action="Request Cancel",
+                    model_name="OrderItem",
+                    object_id=instance.id,
+                    customer_info=instance.order.customer,
+                    product_name=instance.product.name,
+                    quantity=instance.quantity,
+                    price=instance.price,
+                    changes_on_update="Salesman requested cancellation"
+                )
+
+                raise serializers.ValidationError({
+                    "error": "You cannot cancel orders directly. Ask the Manager to cancel the order."
+                })
+
+
+        if new_quantity and instance.status == 'Cancelled':
+            raise serializers.ValidationError({
+                "error": f"The order is already cancelled."
+            })
+        
+        if new_quantity and new_quantity <= 0:
+            raise serializers.ValidationError({
+                "error": f"Quantity must be greater than zero."
+            })
+        
+        if new_quantity and new_status:
+            if new_quantity == instance.quantity and new_status == 'Cancelled':
+                product.stock += instance.quantity
+                instance.quantity = 0
+                instance.unit_price = 0
+                instance.product_price = 0
+                instance.price = 0
+                instance.cost = 0
+                instance.status = 'Cancelled' 
+                product.save()
+                instance.save()
+            elif new_status == 'Done':
+                instance.status = 'Done' 
+                instance.save()
+
+
+
+        if new_quantity and new_quantity > 0 and instance.status == 'Done':
+            # Calculate the difference between new and existing quantity
+            quantity_difference = new_quantity - quantity
+
+            piece = product.piece
+
+            if product.stock >= quantity_difference:  # Ensure there is enough stock
+                # Reduce stock by the order quantity_difference
+
+                if receipt == "Receipt":
+                    if package:
+                        if product.package >= package:
+                            product.package -= package
+                            product.stock -= quantity_difference
+                            product.receipt_no -= quantity_difference
+                            product.save()  # Save the product instance
+                        elif product.package < package:
+                            # raise ValidationError("The amount of package is insufficient.")
+                            raise serializers.ValidationError({
+                                "error": f"The amount of package is insufficient."
+                            })
+                            
+                    elif package is None:
+                        # Calculate the remaining stock and adjust the package count
+                        remaining_stock = product.stock - quantity_difference
+                        remaining_packages = remaining_stock // piece  # Calculate remaining packages
+                        product.package = remaining_packages
+                        product.stock = remaining_stock
+                        product.receipt_no -= quantity_difference
+                        product.save()  # Save the product instance
+
+                elif receipt == "No Receipt":
+                    if package:
+                        if product.package >= package:
+                            product.package -= package
+                            product.stock -= quantity_difference
+                            product.save()  # Save the product instance
+                        elif product.package < package:
+                            raise serializers.ValidationError({
+                                    "error": f"The amount of package is insufficient."
+                                })
+                    elif package is None:
+                        # Calculate the remaining stock and adjust the package count
+                        remaining_stock = product.stock - quantity_difference
+                        remaining_packages = remaining_stock // piece  # Calculate remaining packages
+                        product.package = remaining_packages
+                        product.stock = remaining_stock
+                        product.save()  # Save the product instance
+                    
+            else:
+                raise serializers.ValidationError({
+                        "error": f"Insufficient stock for {product.name}. Available stock is {product.stock}, but {quantity} was requested."
+                    })
+            # Update the instance's quantity
+            instance.quantity = new_quantity
+
+            # The total price without VAT
+            if unit_price > 0 and new_unit_price is None:
+                instance.price = unit_price * instance.quantity
+            elif new_unit_price is not None:
+                instance.unit_price = new_unit_price
+                instance.price = new_unit_price * instance.quantity
+            else:
+                instance.price = product.selling_price * instance.quantity
+
+        instance.save()
+
+        return instance
+
+class OrderGetSerializer(serializers.ModelSerializer):
+    items = OrderItemGetSerializer(many=True)
+    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    customer = serializers.CharField(source='customer.name', read_only=True)
+    customer_fs = serializers.CharField(source='customer.fs_number', read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ['id', 'customer', 'customer_fs', 'status', 'receipt', 'order_date', 'sub_total', 'vat', 'total_amount', 'items', 'user', 'user_email', 'user_role']
+        # fields = ['customer', 'status', 'items']
+        extra_kwargs = {
+            # 'items': {'read_only': True}, # Make 'items' read-only
+            'total_amount': {'required': False},
+            'total_amount': {'read_only': True}, # Make 'total_amount' read-only
+        }
+
+class OrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True)
+    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ['customer', 'status', 'receipt', 'order_date', 'total_amount', 'items', 'user', 'user_email', 'user_role']
+        extra_kwargs = {
+            # 'items': {'read_only': True}, # Make 'items' read-only
+            'total_amount': {'required': False},
+            'total_amount': {'read_only': True}, # Make 'total_amount' read-only
+        }
+    
+    def create(self, validated_data, user=None):
+        user = self.context["request"].user
+        if user:
+            validated_data['user'] = user.name
+            validated_data['user_email'] = user.email
+            validated_data['user_role'] = user.role
+        
+        print(validated_data['user_email'])
+        print(validated_data['user_role'])
+        
+        # receipt = validated_data.get('receipt')
+
+
+        items_data = validated_data.pop('items')
+        # Use a transaction to ensure atomicity
+        with transaction.atomic():
+            # Create the Order instance           
+            order = Order.objects.create(**validated_data)
+
+            # Create each OrderItem
+            for item_data in items_data:
+                # This will call OrderItemSerializer.validate() for each item
+                product = item_data['product']
+                quantity = item_data.get('quantity')
+                receipt = order.receipt
+                # item_receipt = item_data.get('receipt', receipt)  # Use the order's receipt if not provided
+                item_data['item_receipt'] = receipt
+                package = item_data.get('package')
+                unit_price = item_data.get('unit_price', product.selling_price)  # Default to product's selling price if not provided
+                # product_price = item_data.get('product_price', unit_price)
+
+                
+                # print(product_price)
+                total_price = unit_price * item_data['quantity']
+                
+                if quantity <= 0:
+                    # raise ValidationError("Quantity must be greater than zero.")
+                    raise serializers.ValidationError({
+                        "error": f"Quantity must be greater than zero."
+                    })
+                
+                # if quantity > product.receipt_no:
+                #     # raise ValidationError("The amount of receipt is insufficient.")
+                #     raise serializers.ValidationError({
+                #         "error": f"The amount of receipt is insufficient."
+                #     })
+                
+                piece = product.piece
+
+                if product.stock >= quantity:  # Ensure there is enough stock
+                    # Reduce stock by the order quantity
+                    if receipt == "Receipt":
+                        if package:
+                            if product.package >= package:
+                                product.package -= package
+                                product.stock -= quantity
+                                if product.receipt_no is not None:
+                                    product.receipt_no -= quantity
+                                product.save()  # Save the product instance
+                            elif product.package < package:
+                                # raise ValidationError("The amount of package is insufficient.")
+                                raise serializers.ValidationError({
+                                    "error": f"The amount of package is insufficient."
+                                })
+                        elif package is None:
+                            # Calculate the remaining stock and adjust the package count
+                            remaining_stock = product.stock - quantity
+                            if product.piece is not None and product.package is not None:
+                                # If piece and package are defined, calculate remaining packages
+                                remaining_packages = remaining_stock // piece  # Calculate remaining packages
+                                product.package = remaining_packages
+                            product.stock = remaining_stock
+                            if product.receipt_no is not None:
+                                # If receipt_no is defined, reduce it by the quantity
+                                product.receipt_no -= quantity
+                            product.save()  # Save the product instance
+
+                    elif receipt == "No Receipt":
+                        if package:
+                            if product.package >= package:
+                                product.package -= package
+                                product.stock -= quantity
+                                product.save()  # Save the product instance
+                            elif product.package < package:
+                                # raise ValidationError("The amount of package is insufficient.")
+                                raise serializers.ValidationError({
+                                    "error": f"The amount of package is insufficient."
+                                })
+                        elif package is None:
+                            # Calculate the remaining stock and adjust the package count
+                            remaining_stock = product.stock - quantity
+                            if product.piece is not None and product.package is not None:
+                                # If piece and package are defined, calculate remaining packages
+                                remaining_packages = remaining_stock // piece  # Calculate remaining packages
+                                product.package = remaining_packages
+                            product.stock = remaining_stock
+                            product.save()  # Save the product instance
+                else:
+                    raise serializers.ValidationError({
+                        "error": f"Insufficient stock for {product.name}. Available stock is {product.stock}, but {quantity} was requested."
+                    })
+
+                # Create the OrderItem and associate with the Order
+                OrderItem.objects.create(order=order, price=total_price, **item_data)
+                # Adding it into the log with every itration
+                create_order_log(
+                    user = user.name,
+                    action="Create",
+                    model_name="Order",
+                    object_id=order.id,
+                    customer_info = order.customer,
+                    product_name = item_data['product'].name,
+                    quantity = item_data['quantity'],
+                    price = total_price,
+                    changes_on_update = "Created Order Item",
+                )
+                # Adding it into the report with every itration
+                if order.customer is None:
+                    create_order_report(
+                        user = user.name,
+                        customer_name = "Anonymous Customer", 
+                        customer_phone = "0000000000",
+                        customer_tin_number = "000000000",
+                        order_date = order.order_date,
+                        product_name = item_data['product'].name,
+                        product_price = unit_price,
+                        quantity = item_data['quantity'],
+                        price = total_price
+                    )
+                else:
+                    create_order_report(
+                        user = user.name,
+                        customer_name = order.customer.name,
+                        customer_phone = order.customer.phone,
+                        customer_tin_number = order.customer.tin_number,
+                        order_date = order.order_date,
+                        product_name = item_data['product'].name,
+                        product_price = unit_price,
+                        quantity = item_data['quantity'],
+                        price = total_price
+                    )
+            # order.total_amount = order.get_sub_total_price()
+            order.save()
+            return order
+    
+    
+    def update(self, instance, validated_data):
+        # Update order fields directly
+        instance.customer = validated_data.get('customer', instance.customer)
+        instance.status = validated_data.get('status', instance.status)
+        user_role = instance.user_role  # Access the user from the order
+        user = instance.user  # Access the user from the order
+
+        print(user)
+
+
+        if instance.status == 'Cancelled' or instance.status == 'Done':
+            if user_role == 'Manager' or user != 'Admin':
+                # Log the request for manager/admin review
+                # You could create a model like OrderActionRequest or send a notification/email here
+
+                total_quantity = sum(item.quantity for item in instance.items.all())
+                total_price = sum(item.price for item in instance.items.all())
+                create_order_log(
+                    user=user,
+                    action="Request Cancel",
+                    model_name="Order",
+                    object_id=instance.id,
+                    customer_info=instance.customer,
+                    product_name="Whole Order",
+                    quantity=total_quantity,
+                    price=total_price,
+                    changes_on_update="Salesman requested cancellation"
+                )
+
+                raise serializers.ValidationError({
+                    "error": "You cannot cancel orders directly. Ask the Manager to cancel the order."
+                })
+        if instance.status == 'Cancelled':
+            instance.sub_total = 0
+            instance.vat = 0
+            instance.total_amount = 0
+            # instance.items.all().update(
+            #     product.stock += quantity
+            #     product_price = 0,
+            #     unit_price=0,
+            #     price=0,
+            #     cost=0,
+            #     status='Cancelled'
+            # )
+
+            for item in instance.items.all():
+                product = item.product
+                quantity = item.quantity
+                receipt = item.item_receipt
+                # Check if the item is already cancelled
+                if item.status == 'Cancelled':
+                    raise serializers.ValidationError({
+                        "error": f"The order item is already cancelled."
+                    })
+                # Reset the item fields
+                # product.stock += quantity
+                # item.quantity = 0
+                # item.product_price = 0
+                # item.unit_price = 0
+                # item.price = 0
+                # item.cost = 0
+                # item.status = 'Cancelled'
+
+                if product.package is not None and item.package is not None:
+                    product.package += item.package
+                if receipt == "Receipt":
+                    if product.receipt_no is not None:
+                        product.receipt_no += quantity
+                product.save()  # Save the product instance
+                item.save()  # Save the item instance
+            # After updating all items, save the order instance
+        instance.save()                
+        return instance
+
+
+
+
+
+
+
+
+
+
+
+
+
+        new_status = validated_data.get('status')
+        user_role = instance.user_role  # or however you get the user's role
+
+        # If a salesman tries to cancel, set to Pending and raise error
+        if new_status == 'Cancelled' and user_role == 'Salesman':
+            instance.status = 'Pending'
+            instance.save()
+
+            total_quantity = sum(item.quantity for item in instance.items.all())
+            total_price = sum(item.price for item in instance.items.all())
+            create_order_log(
+                user=user,
+                action="Request Cancel",
+                model_name="Order",
+                object_id=instance.id,
+                customer_info=instance.customer,
+                product_name="Whole Order",
+                quantity=total_quantity,
+                price=total_price,
+                changes_on_update="Salesman requested cancellation"
+            )
+
+            raise serializers.ValidationError({
+                "error": "You cannot cancel orders directly. Your cancellation request is now pending manager/admin approval."
+            })
+
+            # ...rest of your update logic for other roles and statuses...
+
+        return super().update(instance, validated_data)
