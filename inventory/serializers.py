@@ -64,7 +64,7 @@ class ProductGetSerializer(serializers.ModelSerializer):
         model = Product
         fields = ['id', 'name', 'category_name', 'description', 'package', 'piece', 'unit', 'buying_price', 'selling_price', 'receipt_no', 'color_code', 'stock', 'supplier_name', 'image', 'user']
         constraints = [
-            UniqueConstraint(fields=['name', 'category_name'], name='unique_product_category_receipt')
+            UniqueConstraint(fields=['name', 'category_name', 'color_code'], name='unique_product_category_color_code')
         ]
 
 class ProductPostSerializer(serializers.ModelSerializer):
@@ -73,7 +73,7 @@ class ProductPostSerializer(serializers.ModelSerializer):
         model = Product
         fields = '__all__'
         constraints = [
-            UniqueConstraint(fields=['name', 'category'], name='unique_product_category_receipt')
+            UniqueConstraint(fields=['name', 'category', 'color_code'], name='unique_product_category_color_code')
         ]
     
     def validate(self, attrs):
