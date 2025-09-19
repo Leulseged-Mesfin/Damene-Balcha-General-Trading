@@ -110,7 +110,7 @@ CSRF_COOKIE_NAME = 'csrftoken'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME':'tokiyo',
+        'NAME':'kirsu',
         'USER':'root',
         'PASSWORD':'Leul1992',
         'HOST':'localhost',
@@ -120,9 +120,9 @@ DATABASES = {
             'init_command': "SET NAMES 'utf8mb4'",
         },
     },
-    'tokiyo': {
+    'kirsu': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME':'tokiyo',
+        'NAME':'kirsu',
         'USER':'root',
         'PASSWORD':'Leul1992',
         'HOST':'localhost',

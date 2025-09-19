@@ -58,6 +58,7 @@ class Product(models.Model):
     selling_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     stock = models.IntegerField(null=True, blank=True)
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True)
+    color_code = models.CharField(max_length=255, null=True, blank=True)
     receipt_no = models.IntegerField(null=True, blank=True)
     image = models.ImageField(upload_to='products/', null=True, blank=True)
     user = models.CharField(max_length=255, default="User", null=True, blank=True)
@@ -192,10 +193,16 @@ class Report(models.Model):
     customer_phone = models.CharField(max_length=255, default="Customer", null=True, blank=True)
     customer_tin_number = models.CharField(max_length=255, default="Customer", null=True, blank=True)
     order_date = models.DateTimeField(auto_now_add=True)
+    order_id = models.IntegerField(null=True, blank=True)
+    item_receipt = models.CharField(max_length=255, default="No Receipt", null=True, blank=True)
     product_name = models.CharField(max_length=255, default="Product", null=True, blank=True)
+    unit = models.CharField(max_length=255, default="Pcs", null=True, blank=True)
     product_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     quantity = models.IntegerField()
-    price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True)
+    sub_total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    vat = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    payment_status = models.CharField(max_length=50, default='Paid', null=True, blank=True)
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)  
 
     def __str__(self):
         return self.user

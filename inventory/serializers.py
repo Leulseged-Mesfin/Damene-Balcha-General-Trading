@@ -62,7 +62,7 @@ class ProductGetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'category_name', 'description', 'package', 'piece', 'unit', 'buying_price', 'selling_price', 'receipt_no', 'stock', 'supplier_name', 'image', 'user']
+        fields = ['id', 'name', 'category_name', 'description', 'package', 'piece', 'unit', 'buying_price', 'selling_price', 'receipt_no', 'color_code', 'stock', 'supplier_name', 'image', 'user']
         constraints = [
             UniqueConstraint(fields=['name', 'category_name'], name='unique_product_category_receipt')
         ]
@@ -607,6 +607,8 @@ class OrderSerializer(serializers.ModelSerializer):
                             product.save()  # Save the product instance  
 
                 total_price = unit_price * item_data['quantity']
+                vat = total_price * Decimal(0.15)
+                receipt_total_price = total_price + vat
 
                 # Create the OrderItem and associate with the Order
                 OrderItem.objects.create(order=order, price=total_price, **item_data)
@@ -623,29 +625,77 @@ class OrderSerializer(serializers.ModelSerializer):
                     changes_on_update = "Created Order Item",
                 )
                 # Adding it into the report with every itration
-                if order.customer is None:
+                if order.customer is None and order.receipt == "Receipt":
                     create_order_report(
                         user = user.name,
                         customer_name = "Anonymous Customer", 
                         customer_phone = "0000000000",
                         customer_tin_number = "000000000",
                         order_date = order.order_date,
+                        order_id = order.id,
+                        item_receipt = item_data['item_receipt'],
+                        unit = item_data['unit'],
                         product_name = item_data['product'].name,
                         product_price = unit_price,
                         quantity = item_data['quantity'],
-                        price = total_price
+                        sub_total = total_price,
+                        vat = vat,
+                        payment_status = order.payment_status,
+                        total_amount = receipt_total_price
                     )
-                else:
+                elif order.customer is not None and order.receipt == "Receipt":
                     create_order_report(
                         user = user.name,
                         customer_name = order.customer.name,
                         customer_phone = order.customer.phone,
                         customer_tin_number = order.customer.tin_number,
                         order_date = order.order_date,
+                        order_id = order.id,
+                        item_receipt = item_data['item_receipt'],
+                        unit = item_data['unit'],
                         product_name = item_data['product'].name,
                         product_price = unit_price,
                         quantity = item_data['quantity'],
-                        price = total_price
+                        sub_total = total_price,
+                        vat = vat,
+                        payment_status = order.payment_status,
+                        total_amount = receipt_total_price
+                    )
+                elif order.customer is not None and order.receipt == "No Receipt":
+                    create_order_report(
+                        user = user.name,
+                        customer_name = order.customer.name,
+                        customer_phone = order.customer.phone,
+                        customer_tin_number = order.customer.tin_number,
+                        order_date = order.order_date,
+                        order_id = order.id,
+                        item_receipt = item_data['item_receipt'],
+                        unit = item_data['unit'],
+                        product_name = item_data['product'].name,
+                        product_price = unit_price,
+                        quantity = item_data['quantity'],
+                        sub_total = total_price,
+                        vat = 0,
+                        payment_status = order.payment_status,
+                        total_amount = total_price
+                    )
+                elif order.customer is None and order.receipt == "No Receipt":
+                    create_order_report(
+                        user = user.name,
+                        customer_name = "Anonymous Customer", 
+                        customer_phone = "0000000000",
+                        customer_tin_number = "000000000",
+                        order_date = order.order_date,
+                        order_id = order.id,
+                        item_receipt = item_data['item_receipt'],
+                        unit = item_data['unit'],
+                        product_name = item_data['product'].name,
+                        product_price = unit_price,
+                        quantity = item_data['quantity'],
+                        sub_total = total_price,
+                        vat = 0,
+                        payment_status = order.payment_status,
+                        total_amount = total_price
                     )
 
 

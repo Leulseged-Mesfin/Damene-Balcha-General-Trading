@@ -26,18 +26,26 @@ def create_order_log(user, action, model_name, object_id, customer_info, product
     )
     
 
-def create_order_report(user, customer_name, customer_phone, customer_tin_number, order_date, product_name, product_price, quantity, price):
+def create_order_report(user, customer_name, customer_phone, customer_tin_number, order_date, order_id, item_receipt, unit,  product_name, product_price, quantity, sub_total, vat, payment_status, total_amount,):
     # print("Order Report Active")
+    # item_receipt, unit, sub_total, vat, payment_status, paid_amount, unpaid_amount, total_amount
+
     Report.objects.create(
         user = user,
         customer_name = customer_name,
         customer_phone = customer_phone,
         customer_tin_number = customer_tin_number,
         order_date = order_date,
+        order_id = order_id,
+        item_receipt = item_receipt,
         product_name = product_name,
+        unit = unit,
         product_price = product_price,
         quantity = quantity,
-        price = price
+        sub_total = sub_total,
+        vat = vat,
+        payment_status = payment_status,
+        total_amount = total_amount
     )
 
 
