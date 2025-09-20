@@ -79,9 +79,10 @@ class ProductPostSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         name = attrs.get('name')
         category = attrs.get('category')
-        if Product.objects.filter(name=name, category=category).exists():
+        color_code = attrs.get('color_code')
+        if Product.objects.filter(name=name, category=category, color_code=color_code).exists():
             raise serializers.ValidationError(
-                {"error": "A product with this name and category already exists."}
+                {"error": "A product with this name, category and color code already exists."}
             )
         return super().validate(attrs)
     
